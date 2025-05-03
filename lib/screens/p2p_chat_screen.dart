@@ -338,123 +338,142 @@ class _P2PChatScreenState extends State<P2PChatScreen> {
   Widget _buildChatView() {
     final peer = _p2pService.connectedDevice!;
     
-    return Column(
-      children: [
-        // Connected peer info bar
-        Container(
-          padding: const EdgeInsets.all(8),
-          color: Colors.green.withOpacity(0.1),
-          child: Row(
-            children: [
-              const CircleAvatar(
-                backgroundColor: Colors.green,
-                child: Icon(Icons.person, color: Colors.white),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      getDeviceName(peer),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      'Connected via P2P',
-                      style: TextStyle(
-                        color: Colors.grey[600], 
-                        fontSize: 12,
+    return SafeArea(
+      child: Column(
+        children: [
+          // Connected peer info bar
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.green.withOpacity(0.1),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  backgroundColor: Colors.green,
+                  child: Icon(Icons.person, color: Colors.white),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        getDeviceName(peer),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // Messages list
-        Expanded(
-          child: _messages.isEmpty
-            ? const Center(child: Text('No messages yet'))
-            : ListView.builder(
-                padding: const EdgeInsets.all(10.0),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final message = _messages[index];
-                  final isMe = message.senderId == "current_user";
-                  
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5.0),
-                    child: Row(
-                      mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                      children: [
-                        if (!isMe) ...[
-                          const CircleAvatar(
-                            backgroundColor: Colors.grey,
-                            radius: 16,
-                            child: Icon(Icons.person, size: 16, color: Colors.white),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-                            decoration: BoxDecoration(
-                              color: isMe ? Colors.green[300] : Colors.grey[300],
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  message.text,
-                                  style: TextStyle(
-                                    color: isMe ? Colors.white : Colors.black,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                      Text(
+                        'Connected via P2P',
+                        style: TextStyle(
+                          color: Colors.grey[600], 
+                          fontSize: 12,
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-        ),
-        
-        // Message input area
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(25.0),
-          ),
-          margin: const EdgeInsets.all(8.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  decoration: const InputDecoration(
-                    hintText: "Type a message",
-                    border: InputBorder.none,
+                      ),
+                    ],
                   ),
-                  textCapitalization: TextCapitalization.sentences,
-                  onSubmitted: (_) => _sendMessage(),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.send),
-                color: Theme.of(context).primaryColor,
-                onPressed: _sendMessage,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+          
+          // Messages list
+          Expanded(
+            child: _messages.isEmpty
+              ? const Center(child: Text('No messages yet'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10.0),
+                  itemCount: _messages.length,
+                  reverse: false,
+                  itemBuilder: (context, index) {
+                    final message = _messages[index];
+                    final isMe = message.senderId == "current_user";
+                    
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 5.0),
+                      child: Row(
+                        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                        children: [
+                          if (!isMe) ...[
+                            const CircleAvatar(
+                              backgroundColor: Colors.grey,
+                              radius: 16,
+                              child: Icon(Icons.person, size: 16, color: Colors.white),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                              decoration: BoxDecoration(
+                                color: isMe ? Colors.green[300] : Colors.grey[300],
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    message.text,
+                                    style: TextStyle(
+                                      color: isMe ? Colors.white : Colors.black,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+          ),
+          
+          // Message input area - improved positioning
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0, left: 8.0, right: 8.0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(25.0),
+                boxShadow: [
+                  BoxShadow(
+                    offset: const Offset(0, 1),
+                    blurRadius: 3,
+                    color: Colors.black.withOpacity(0.1),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      decoration: const InputDecoration(
+                        hintText: "Type a message",
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12.0),
+                      ),
+                      textCapitalization: TextCapitalization.sentences,
+                      onSubmitted: (_) => _sendMessage(),
+                      keyboardType: TextInputType.multiline,
+                      maxLines: 3,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.send, size: 24),
+                    color: Theme.of(context).primaryColor,
+                    onPressed: _sendMessage,
+                    splashRadius: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
