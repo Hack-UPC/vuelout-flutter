@@ -28,6 +28,23 @@ class ChatService {
   ChatService() {
     _initializeMessages();
     _setupBluetoothListener();
+    _initializeBluetooth(); // Start Bluetooth automatically
+  }
+
+  // Initialize Bluetooth automatically on startup
+  Future<void> _initializeBluetooth() async {
+    try {
+      bool initialized = await _bluetoothService.initialize();
+      if (initialized) {
+        // Start advertising so other devices can find us
+        await _bluetoothService.startAdvertising();
+        debugPrint('Bluetooth initialized and advertising started');
+      } else {
+        debugPrint('Failed to initialize Bluetooth');
+      }
+    } catch (e) {
+      debugPrint('Error initializing Bluetooth: $e');
+    }
   }
 
   // Set up listener for incoming Bluetooth messages

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../services/chat_service.dart';
 import '../models/chat.dart';
-import 'chat_detail_screen.dart';
+import 'dart:async';
 
 class BluetoothScanScreen extends StatefulWidget {
   final ChatService chatService;
@@ -21,6 +21,8 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
   bool _isInitializing = true;
   String _statusMessage = "Initializing Bluetooth...";
   List<BluetoothDevice> _devices = [];
+  bool _showAllDevices = true; // Show all devices by default
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -39,6 +41,11 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
             ? "Ready to scan for devices" 
             : "Failed to initialize Bluetooth";
         });
+        
+        // Auto-start scan when screen opens
+        if (initialized) {
+          _startScan();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -59,25 +66,41 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
     });
 
     try {
+      // Start the scan
       await widget.chatService.startBluetoothScan();
       
-      // Update the list of devices periodically during scanning
-      for (int i = 0; i < 5; i++) {
-        if (!mounted) return;
+      // Update the UI periodically while scanning
+      _refreshTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        if (mounted) {
+          setState(() {
+            _devices = widget.chatService.getDiscoveredDevices();
+            _statusMessage = "Scanning... Found ${_devices.length} devices";
+          });
+        }
+      });
+      
+      // Wait for scan to complete
+      await Future.delayed(const Duration(seconds: 15));
+      
+      // Final device update after scan completes
+      if (mounted) {
+        _refreshTimer?.cancel();
+        _refreshTimer = null;
         
-        await Future.delayed(const Duration(seconds: 2));
-        
+        await widget.chatService.stopBluetoothScan();
         setState(() {
           _devices = widget.chatService.getDiscoveredDevices();
-        });
-      }
-    } finally {
-      if (mounted) {
-        await widget.chatService.stopBluetoothScan();
-        
-        setState(() {
           _isScanning = false;
           _statusMessage = "Scan complete. ${_devices.length} devices found.";
+        });
+      }
+    } catch (e) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+          _statusMessage = "Error during scan: $e";
         });
       }
     }
@@ -131,15 +154,36 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
   
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     widget.chatService.stopBluetoothScan();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Filter devices if the user only wants to see app devices
+    List<BluetoothDevice> displayedDevices = _showAllDevices 
+        ? _devices 
+        : _devices.where((device) {
+            return device.platformName.toLowerCase().contains('vuelout') || 
+                   device.platformName.toLowerCase().contains('chat');
+          }).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bluetooth Devices'),
+        title: const Text('Nearby Devices'),
+        actions: [
+          // Toggle between all devices and app-specific devices
+          IconButton(
+            icon: Icon(_showAllDevices ? Icons.filter_list_off : Icons.filter_list),
+            tooltip: _showAllDevices ? 'Show app devices only' : 'Show all devices',
+            onPressed: () {
+              setState(() {
+                _showAllDevices = !_showAllDevices;
+              });
+            },
+          ),
+        ],
       ),
       body: _isInitializing
         ? _buildLoadingView()
@@ -155,15 +199,47 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
                   ),
                 ),
               ),
+              if (!_showAllDevices && displayedDevices.isEmpty && _devices.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Text(
+                    'No app devices found. There are ${_devices.length} other Bluetooth devices nearby.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ),
               Expanded(
-                child: _devices.isEmpty
-                  ? const Center(
-                      child: Text('No devices found. Try scanning again.'),
+                child: displayedDevices.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.bluetooth_searching,
+                            size: 48,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'No devices found',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 16),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                            child: Text(
+                              'Make sure other devices have Bluetooth turned on and are within range',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ),
+                        ],
+                      ),
                     )
                   : ListView.builder(
-                      itemCount: _devices.length,
+                      itemCount: displayedDevices.length,
                       itemBuilder: (context, index) {
-                        final device = _devices[index];
+                        final device = displayedDevices[index];
                         return _buildDeviceItem(device);
                       },
                     ),
@@ -172,10 +248,11 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
           ),
       floatingActionButton: _isInitializing
         ? null
-        : FloatingActionButton(
+        : FloatingActionButton.extended(
             onPressed: _isScanning ? null : _startScan,
             backgroundColor: _isScanning ? Colors.grey : Theme.of(context).primaryColor,
-            child: Icon(_isScanning ? Icons.hourglass_full : Icons.search),
+            icon: Icon(_isScanning ? Icons.hourglass_full : Icons.bluetooth_searching),
+            label: Text(_isScanning ? 'Scanning...' : 'Scan for Devices'),
           ),
     );
   }
@@ -200,15 +277,52 @@ class _BluetoothScanScreenState extends State<BluetoothScanScreen> {
       
     String deviceId = device.remoteId.toString();
     
-    return ListTile(
-      leading: const CircleAvatar(
-        child: Icon(Icons.bluetooth),
-      ),
-      title: Text(deviceName),
-      subtitle: Text(deviceId),
-      trailing: ElevatedButton(
-        onPressed: () => _connectToDevice(device),
-        child: const Text('Connect'),
+    // Check if this device appears to be running our app
+    bool isAppDevice = deviceName.toLowerCase().contains('vuelout') || 
+                       deviceName.toLowerCase().contains('chat');
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: isAppDevice ? Colors.green : Colors.blue,
+          child: Icon(
+            isAppDevice ? Icons.chat : Icons.bluetooth,
+            color: Colors.white,
+          ),
+        ),
+        title: Text(
+          deviceName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isAppDevice 
+                ? 'Vuelout Chat App Device' 
+                : 'Bluetooth Device',
+              style: TextStyle(
+                color: isAppDevice ? Colors.green : Colors.grey[600],
+              ),
+            ),
+            Text(
+              'ID: ${deviceId.substring(0, 10)}...',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+        trailing: ElevatedButton(
+          onPressed: () => _connectToDevice(device),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isAppDevice ? Colors.green : null,
+          ),
+          child: const Text('Connect'),
+        ),
+        onTap: () => _connectToDevice(device),
       ),
     );
   }
