@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'models/chat.dart';
 import 'models/message.dart';
-import 'screens/chat_list_screen.dart';
 import 'services/chat_service.dart';
+import 'screens/chat_list_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -32,13 +32,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Initialize chat service
   final ChatService _chatService = ChatService();
-  
-  // Sample data for chats
   List<Chat> _chats = [];
   bool _isLoading = true;
-  
+  int _currentPageIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -46,10 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initializeChats() async {
-    // Allow time for chat service to load messages from storage
     await Future.delayed(const Duration(milliseconds: 500));
-    
-    // Create chat list with latest data
+
     final chats = [
       Chat(
         id: '1',
@@ -65,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
         lastMessage: await _getLastMessageText('2', 'The meeting is scheduled for tomorrow at 10 AM'),
         avatarUrl: 'https://randomuser.me/api/portraits/women/2.jpg',
         lastMessageTime: await _getLastMessageTime('2', DateTime.now().subtract(const Duration(hours: 1))),
-        unreadCount: _chatService.getUnreadCount('2'),
+        unreadCount: 2, // 2 mensajes no leídos
       ),
       Chat(
         id: '3',
@@ -73,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
         lastMessage: await _getLastMessageText('3', 'Did you check the latest documents I sent?'),
         avatarUrl: 'https://randomuser.me/api/portraits/men/3.jpg',
         lastMessageTime: await _getLastMessageTime('3', DateTime.now().subtract(const Duration(hours: 2))),
-        unreadCount: _chatService.getUnreadCount('3'),
+        unreadCount: 1, // 1 mensaje no leído
       ),
       Chat(
         id: '4',
@@ -81,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
         lastMessage: await _getLastMessageText('4', 'Thanks for your help yesterday!'),
         avatarUrl: 'https://randomuser.me/api/portraits/women/4.jpg',
         lastMessageTime: await _getLastMessageTime('4', DateTime.now().subtract(const Duration(days: 1))),
-        unreadCount: _chatService.getUnreadCount('4'),
+        unreadCount: 0, // Sin mensajes no leídos
       ),
       Chat(
         id: '5',
@@ -89,18 +85,57 @@ class _HomeScreenState extends State<HomeScreen> {
         lastMessage: await _getLastMessageText('5', 'Are we still meeting for lunch?'),
         avatarUrl: 'https://randomuser.me/api/portraits/men/5.jpg',
         lastMessageTime: await _getLastMessageTime('5', DateTime.now().subtract(const Duration(days: 1, hours: 3))),
-        unreadCount: _chatService.getUnreadCount('5'),
+        unreadCount: 0, // Sin mensajes no leídos
+      ),
+      Chat(
+        id: '6',
+        name: 'Sophia Adams',
+        lastMessage: await _getLastMessageText('6', 'Can you review the proposal I sent?'),
+        avatarUrl: 'https://randomuser.me/api/portraits/women/5.jpg',
+        lastMessageTime: await _getLastMessageTime('6', DateTime.now().subtract(const Duration(days: 2))),
+        unreadCount: 3, // 3 mensajes no leídos
+      ),
+      Chat(
+        id: '7',
+        name: 'David Taylor',
+        lastMessage: await _getLastMessageText('7', 'Happy Birthday! Enjoy your day!'),
+        avatarUrl: 'https://randomuser.me/api/portraits/men/6.jpg',
+        lastMessageTime: await _getLastMessageTime('7', DateTime.now().subtract(const Duration(days: 3))),
+        unreadCount: 5, // 5 mensajes no leídos
+      ),
+      Chat(
+        id: '8',
+        name: 'Olivia Carter',
+        lastMessage: await _getLastMessageText('8', 'I will call you tomorrow at 3 PM'),
+        avatarUrl: 'https://randomuser.me/api/portraits/women/6.jpg',
+        lastMessageTime: await _getLastMessageTime('8', DateTime.now().subtract(const Duration(days: 4))),
+        unreadCount: 0, // Sin mensajes no leídos
+      ),
+      Chat(
+        id: '9',
+        name: 'Lucas King',
+        lastMessage: await _getLastMessageText('9', 'Let\'s meet on Friday!'),
+        avatarUrl: 'https://randomuser.me/api/portraits/men/7.jpg',
+        lastMessageTime: await _getLastMessageTime('9', DateTime.now().subtract(const Duration(days: 5))),
+        unreadCount: 0, // Sin mensajes no leídos
+      ),
+      Chat(
+        id: '10',
+        name: 'Mia Roberts',
+        lastMessage: await _getLastMessageText('10', 'The task is complete. Thanks for your help!'),
+        avatarUrl: 'https://randomuser.me/api/portraits/women/7.jpg',
+        lastMessageTime: await _getLastMessageTime('10', DateTime.now().subtract(const Duration(days: 6))),
+        unreadCount: 0, // Sin mensajes no leídos
       ),
     ];
-
-    if (mounted) {
+  if (mounted) {
       setState(() {
         _chats = chats;
         _isLoading = false;
       });
     }
   }
-  
+
   Future<String> _getLastMessageText(String chatId, String defaultText) async {
     final messages = await _chatService.getMessages(chatId);
     if (messages.isNotEmpty) {
@@ -108,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return defaultText;
   }
-  
+
   Future<DateTime> _getLastMessageTime(String chatId, DateTime defaultTime) async {
     final messages = await _chatService.getMessages(chatId);
     if (messages.isNotEmpty) {
@@ -119,15 +154,75 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return _isLoading 
-      ? const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
+    final theme = Theme.of(context);
+
+    // Cambios aquí: Verificar si hay mensajes no leídos en algún chat
+    bool hasUnreadMessages = _chats.any((chat) => chat.unreadCount > 0);
+
+    final List<Widget> pages = [
+      Center(child: Text('Página de inicio', style: theme.textTheme.titleLarge)),
+      const Column(
+        children: [
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.notifications),
+              title: Text('Notificación 1'),
+              subtitle: Text('Esto es una notificación'),
+            ),
           ),
-        )
-      : ChatListScreen(
-          chats: _chats,
-          chatService: _chatService,
-        );
+        ],
+      ),
+      _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ChatListScreen(chats: _chats, chatService: _chatService),
+    ];
+
+    return Scaffold(
+      body: SafeArea(child: pages[_currentPageIndex]),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentPageIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _currentPageIndex = index;
+          });
+        },
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(Icons.notifications),
+            label: 'Notificaciones',
+          ),
+          // Cambios aquí: Uso de Stack para mostrar el ícono y el punto verde
+          NavigationDestination(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.messenger_outline),
+                if (hasUnreadMessages) // Verificación de mensajes no leídos
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      width: 8.0,
+                      height: 8.0,
+                      decoration: BoxDecoration(
+                        color: Colors.green, // Punto verde
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            selectedIcon: const Icon(Icons.messenger),
+            label: 'Mensajes',
+          ),
+        ],
+      ),
+    );
   }
 }
