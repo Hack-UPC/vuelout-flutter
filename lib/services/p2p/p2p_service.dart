@@ -25,6 +25,9 @@ class P2PService {
   NearbyDevice? _connectedDevice;
   StreamSubscription? _connectedDeviceSubscription;
   
+  // Timer to periodically check connection health
+  Timer? _connectionHealthTimer;
+  
   // State variables
   bool _isInitialized = false;
   bool _isDiscovering = false;
@@ -135,24 +138,59 @@ class P2PService {
     }
   }
   
-  // Connect to a peer
+  // Connect to a peer with retry mechanism
   Future<bool> connectToPeer(NearbyDevice peer) async {
     try {
+      // Try to stop discovery first to avoid BUSY errors
+      try {
+        await stopDiscovery();
+      } catch (e) {
+        print("P2PService: Ignoring error while stopping discovery before connecting: $e");
+        // Continue anyway - don't let this stop the connection attempt
+      }
+
+      // Wait a moment to ensure discovery is fully stopped
+      await Future.delayed(const Duration(milliseconds: 500));
+      
       print("P2PService: Connecting to peer: ${peer.info.id}, type: ${peer.runtimeType}...");
-      final result = await _nearbyService.connect(peer);
+      
+      // First connection attempt
+      var result = await _nearbyService.connect(peer);
       print("P2PService: Connect result: $result");
+      
+      // If failed, retry after a short delay
+      if (!result) {
+        print("P2PService: First connection attempt failed, retrying in 1 second...");
+        await Future.delayed(const Duration(seconds: 1));
+        result = await _nearbyService.connect(peer);
+        print("P2PService: Retry connection result: $result");
+      }
+      
       if (result) {
         _connectedDevice = peer;
         
-        // Listen for connection status
+        // Listen for connection status with improved error handling
+        _connectedDeviceSubscription?.cancel(); // Cancel any existing subscription
         _connectedDeviceSubscription = _nearbyService
             .getConnectedDeviceStream(peer)
-            .listen(_handleConnectedDeviceUpdate);
+            .listen(
+              _handleConnectedDeviceUpdate,
+              onError: (error) {
+                print("P2PService: Error in connected device stream: $error");
+                // Avoid losing connection due to stream errors
+                if (_connectedDevice != null) {
+                  print("P2PService: Maintaining connection despite stream error");
+                }
+              },
+            );
         
-        // Start communication channel
+        // Start communication channel with retry
         await _setupCommunicationChannel();
         
         _connectionStatusController.add(true);
+        
+        // After successful connection, periodically check connection health
+        _startConnectionHealthCheck();
       }
       
       return result;
@@ -161,28 +199,45 @@ class P2PService {
       return false;
     }
   }
-  
-  // Disconnect from the current peer
-  Future<bool> disconnect() async {
-    if (_connectedDevice == null) return true;
-    
-    try {
-      final result = await _nearbyService.disconnect(_connectedDevice!);
-      if (result) {
-        await _connectedDeviceSubscription?.cancel();
-        _connectedDeviceSubscription = null;
-        _connectedDevice = null;
-        _connectionStatusController.add(false);
+
+  // Timer to periodically check connection health
+  void _startConnectionHealthCheck() {
+    _connectionHealthTimer?.cancel();
+    _connectionHealthTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_connectedDevice == null) {
+        timer.cancel();
+        return;
       }
       
-      return result;
-    } catch (e) {
-      print('Error disconnecting: $e');
-      return false;
-    }
+      try {
+        // Just log the current status for debugging
+        final isConnected = _connectedDevice?.status.isConnected ?? false;
+        print("P2PService: Connection health check - Status: ${isConnected ? 'CONNECTED' : 'DISCONNECTED'}");
+        
+        // If connection was lost, try to reconnect
+        if (!isConnected && _connectedDevice != null) {
+          print("P2PService: Detected connection loss, attempting to restore...");
+          final device = _connectedDevice;
+          // Delay the reconnect attempt to avoid conflicts
+          Future.delayed(const Duration(seconds: 1), () {
+            if (device != null && !device.status.isConnected) {
+              _nearbyService.connect(device).then((success) {
+                print("P2PService: Reconnection attempt result: $success");
+                if (success) {
+                  _setupCommunicationChannel();
+                  _connectionStatusController.add(true);
+                }
+              });
+            }
+          });
+        }
+      } catch (e) {
+        print("P2PService: Error during connection health check: $e");
+      }
+    });
   }
-  
-  // Setup the communication channel for exchanging messages
+
+  // Setup the communication channel for exchanging messages with retry
   Future<void> _setupCommunicationChannel() async {
     if (_connectedDevice == null) return;
     
@@ -196,18 +251,28 @@ class P2PService {
       onData: _handleIncomingFiles,
     );
     
-    try {
-      await _nearbyService.startCommunicationChannel(
-        NearbyCommunicationChannelData(
-          _connectedDevice!.info.id,
-          messagesListener: messagesListener,
-          filesListener: filesListener,
-        ),
-      );
-      print("P2PService: Communication channel established successfully");
-    } catch (e) {
-      print("P2PService: Error establishing communication channel: $e");
+    // Try to establish communication channel with retries
+    int maxRetries = 3;
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await _nearbyService.startCommunicationChannel(
+          NearbyCommunicationChannelData(
+            _connectedDevice!.info.id,
+            messagesListener: messagesListener,
+            filesListener: filesListener,
+          ),
+        );
+        print("P2PService: Communication channel established successfully on attempt $attempt");
+        return; // Success, exit the function
+      } catch (e) {
+        print("P2PService: Error establishing communication channel (attempt $attempt/$maxRetries): $e");
+        if (attempt < maxRetries) {
+          // Wait before retrying
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+      }
     }
+    print("P2PService: Failed to establish communication channel after $maxRetries attempts");
   }
   
   // Handle updates to the connected device
@@ -300,9 +365,50 @@ class P2PService {
       return false;
     }
   }
+
+  // Disconnect from the current peer
+  Future<bool> disconnect() async {
+    if (_connectedDevice == null) return true;
+    
+    try {
+      print("P2PService: Disconnecting from peer: ${_connectedDevice?.info.id}");
+      
+      // Cancel health check timer
+      _connectionHealthTimer?.cancel();
+      
+      // Cancel any active subscriptions
+      await _connectedDeviceSubscription?.cancel();
+      _connectedDeviceSubscription = null;
+      
+      // Disconnect from the peer
+      final result = await _nearbyService.disconnect(_connectedDevice!);
+      print("P2PService: Disconnect result: $result");
+      
+      if (result) {
+        _connectedDevice = null;
+        _connectionStatusController.add(false);
+      } else {
+        // Even if the disconnect call fails, consider the connection closed on our side
+        print("P2PService: Forcing disconnect state despite API failure");
+        _connectedDevice = null;
+        _connectionStatusController.add(false);
+      }
+      
+      return result;
+    } catch (e) {
+      print('Error disconnecting from peer: $e');
+      
+      // Even if we get an error, consider the connection closed on our side
+      _connectedDevice = null;
+      _connectionStatusController.add(false);
+      
+      return false;
+    }
+  }
   
   // Dispose resources
   void dispose() async {
+    _connectionHealthTimer?.cancel();
     await disconnect();
     await stopDiscovery();
     

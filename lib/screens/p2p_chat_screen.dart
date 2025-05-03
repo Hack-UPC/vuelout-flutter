@@ -67,21 +67,69 @@ class _P2PChatScreenState extends State<P2PChatScreen> {
     _connectionSubscription = _p2pService.connectionStatusStream.listen(
       (isConnected) {
         print("P2PChatScreen: Connection status changed: $isConnected");
-        setState(() {});
+        
+        // Force UI update with setState to show chat view when connected
+        setState(() {
+          // Any state changes will trigger UI rebuild
+        });
         
         if (isConnected) {
           // Stop discovery when connected
           _stopDiscovery();
+          
+          // Show a snackbar to indicate successful connection
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Connected to peer'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+          
+          // Force another UI update after a short delay to ensure transition to chat view
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              setState(() {});
+            }
+          });
+        } else {
+          // Connection was lost or disconnected
+          if (_p2pService.connectedDevice != null) {
+            // Show a warning if the connection was lost unexpectedly
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Connection lost - attempting to reconnect...'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+          }
+          
+          // Since we're disconnected, we can restart discovery
+          if (!_isDiscovering && mounted) {
+            Future.delayed(const Duration(seconds: 2), () {
+              if (!_p2pService.isConnected && mounted) {
+                _startDiscovery();
+              }
+            });
+          }
+        }
+      },
+      onError: (error) {
+        print("P2PChatScreen: Error in connection stream: $error");
+        // Handle errors gracefully - don't crash the app
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Connected to peer')),
-          );
-        } else if (_p2pService.connectedDevice != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Disconnected from peer')),
+            SnackBar(
+              content: Text('Connection error: $error'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       },
-      onError: (error) => print("P2PChatScreen: Error in connection stream: $error"),
     );
 
     // On Android, check permissions
