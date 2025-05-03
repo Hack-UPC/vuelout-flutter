@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/chat.dart';
+import '../services/chat_service.dart';
+import 'chat_detail_screen.dart';
 
-class ChatListScreen extends StatelessWidget {
+class ChatListScreen extends StatefulWidget {
   final List<Chat> chats;
+  final ChatService chatService;
 
-  const ChatListScreen({super.key, required this.chats});
+  const ChatListScreen({
+    super.key, 
+    required this.chats,
+    required this.chatService,
+  });
 
+  @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -27,13 +39,21 @@ class ChatListScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: chats.isEmpty 
+      body: widget.chats.isEmpty 
         ? const Center(child: Text('No chats yet'))
         : ListView.builder(
-            itemCount: chats.length,
+            itemCount: widget.chats.length,
             itemBuilder: (context, index) {
-              final chat = chats[index];
-              return ChatListItem(chat: chat);
+              final chat = widget.chats[index];
+              
+              // Get unread count from the chat service
+              final unreadCount = widget.chatService.getUnreadCount(chat.id);
+              
+              return ChatListItem(
+                chat: chat,
+                unreadCount: unreadCount,
+                onTap: () => _navigateToChatDetail(chat),
+              );
             },
           ),
       floatingActionButton: FloatingActionButton(
@@ -44,12 +64,35 @@ class ChatListScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _navigateToChatDetail(Chat chat) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatDetailScreen(
+          chat: chat,
+          chatService: widget.chatService,
+        ),
+      ),
+    ).then((_) {
+      // Update the UI when coming back from the chat detail screen
+      // to reflect any changes in unread messages
+      setState(() {});
+    });
+  }
 }
 
 class ChatListItem extends StatelessWidget {
   final Chat chat;
+  final int unreadCount;
+  final VoidCallback onTap;
 
-  const ChatListItem({super.key, required this.chat});
+  const ChatListItem({
+    super.key, 
+    required this.chat,
+    required this.unreadCount,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -79,15 +122,15 @@ class ChatListItem extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          if (chat.unreadCount > 0)
+          if (unreadCount > 0)
             Container(
               padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.green,
                 shape: BoxShape.circle,
               ),
               child: Text(
-                chat.unreadCount.toString(),
+                unreadCount.toString(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 10,
@@ -97,9 +140,7 @@ class ChatListItem extends StatelessWidget {
             ),
         ],
       ),
-      onTap: () {
-        // Navigate to chat detail screen
-      },
+      onTap: onTap,
     );
   }
 }
