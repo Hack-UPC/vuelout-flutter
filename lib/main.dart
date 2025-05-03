@@ -156,18 +156,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // Cambios aquí: Verificar si hay mensajes no leídos en algún chat
     bool hasUnreadMessages = _chats.any((chat) => chat.unreadCount > 0);
 
     final List<Widget> pages = [
-      Center(child: Text('Página de inicio', style: theme.textTheme.titleLarge)),
+      Center(child: Text('Home page', style: theme.textTheme.titleLarge)),
       const Column(
         children: [
           Card(
             child: ListTile(
               leading: Icon(Icons.notifications),
-              title: Text('Notificación 1'),
-              subtitle: Text('Esto es una notificación'),
+              title: Text('Notification 1'),
+              subtitle: Text('This is a notificacion'),
             ),
           ),
         ],
@@ -195,15 +194,14 @@ class _HomeScreenState extends State<HomeScreen> {
           const NavigationDestination(
             icon: Icon(Icons.notifications_outlined),
             selectedIcon: Icon(Icons.notifications),
-            label: 'Notificaciones',
+            label: 'Notifications',
           ),
-          // Cambios aquí: Uso de Stack para mostrar el ícono y el punto verde
           NavigationDestination(
             icon: Stack(
               clipBehavior: Clip.none,
               children: [
                 const Icon(Icons.messenger_outline),
-                if (hasUnreadMessages) // Verificación de mensajes no leídos
+                if (hasUnreadMessages)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -211,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 8.0,
                       height: 8.0,
                       decoration: BoxDecoration(
-                        color: Colors.green, // Punto verde
+                        color: Colors.green,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -219,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             selectedIcon: const Icon(Icons.messenger),
-            label: 'Mensajes',
+            label: 'Messages',
           ),
         ],
       ),
