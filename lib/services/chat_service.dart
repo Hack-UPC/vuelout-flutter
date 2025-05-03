@@ -1,6 +1,11 @@
 import '../models/message.dart';
 import '../models/chat.dart';
 import 'storage_service.dart';
+import 'bluetooth_service.dart';
+import 'package:uuid/uuid.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' hide BluetoothService;
+import 'dart:async';
 
 class ChatService {
   // Mock user ID - in a real app, this would come from authentication
@@ -11,10 +16,38 @@ class ChatService {
   
   // Storage service for persistence
   final StorageService _storageService = StorageService();
+  
+  // Bluetooth service for P2P messaging
+  final BluetoothChatService _bluetoothService = BluetoothChatService();
+  
+  // Stream controller for chat updates
+  final _chatUpdatesController = StreamController<String>.broadcast();
+  Stream<String> get onChatUpdated => _chatUpdatesController.stream;
 
   // Initialize with sample message data
   ChatService() {
     _initializeMessages();
+    _setupBluetoothListener();
+  }
+
+  // Set up listener for incoming Bluetooth messages
+  void _setupBluetoothListener() {
+    _bluetoothService.onMessageReceived.listen((message) async {
+      // Get the sender's device ID/name (or create a new chat if needed)
+      final chatId = _bluetoothService.connectedDevice?.remoteId.toString() ?? 'unknown_device';
+      
+      if (!_chatMessages.containsKey(chatId)) {
+        _chatMessages[chatId] = [];
+      }
+      
+      _chatMessages[chatId]!.add(message);
+      
+      // Save to storage
+      await _storageService.saveMessages(chatId, _chatMessages[chatId]!);
+      
+      // Notify listeners
+      _chatUpdatesController.add(chatId);
+    });
   }
 
   // Load messages from storage or use sample data if storage is empty
@@ -146,8 +179,8 @@ class ChatService {
     return _chatMessages[chatId] ?? [];
   }
 
-  // Send a new message in a chat
-  Future<void> sendMessage(String chatId, String text) async {
+  // Send a message in a chat
+  Future<bool> sendMessage(String chatId, String text) async {
     final messageId = '${chatId}_${(_chatMessages[chatId]?.length ?? 0) + 1}_${DateTime.now().millisecondsSinceEpoch}';
     
     final newMessage = Message(
@@ -161,10 +194,67 @@ class ChatService {
       _chatMessages[chatId] = [];
     }
     
+    // Add to local storage
     _chatMessages[chatId]!.add(newMessage);
-    
-    // Persist to storage
     await _storageService.saveMessages(chatId, _chatMessages[chatId]!);
+    
+    // If connected via Bluetooth, send over Bluetooth
+    if (_bluetoothService.isConnected && _bluetoothService.connectedDevice != null) {
+      return await _bluetoothService.sendMessage(newMessage);
+    }
+    
+    return true;
+  }
+
+  // Initialize Bluetooth
+  Future<bool> initializeBluetooth() async {
+    return await _bluetoothService.initialize();
+  }
+  
+  // Start scanning for Bluetooth devices
+  Future<void> startBluetoothScan() async {
+    await _bluetoothService.startScan();
+  }
+  
+  // Stop scanning for Bluetooth devices
+  Future<void> stopBluetoothScan() async {
+    await _bluetoothService.stopScan();
+  }
+  
+  // Get discovered Bluetooth devices
+  List<BluetoothDevice> getDiscoveredDevices() {
+    return _bluetoothService.discoveredDevices;
+  }
+  
+  // Connect to a Bluetooth device
+  Future<bool> connectToBluetoothDevice(BluetoothDevice device) async {
+    final success = await _bluetoothService.connectToDevice(device);
+    
+    if (success) {
+      // Create a chat entry for this device if it doesn't exist
+      final chatId = device.remoteId.toString();
+      if (!_chatMessages.containsKey(chatId)) {
+        _chatMessages[chatId] = [];
+        await _storageService.saveMessages(chatId, _chatMessages[chatId]!);
+      }
+    }
+    
+    return success;
+  }
+  
+  // Disconnect from the Bluetooth device
+  Future<void> disconnectFromBluetoothDevice() async {
+    await _bluetoothService.disconnect();
+  }
+  
+  // Check if connected to Bluetooth device
+  bool isConnectedToBluetooth() {
+    return _bluetoothService.isConnected;
+  }
+  
+  // Get the currently connected device
+  BluetoothDevice? getConnectedDevice() {
+    return _bluetoothService.connectedDevice;
   }
 
   // Mark all messages in a chat as read
@@ -210,5 +300,11 @@ class ChatService {
     if (messages == null || messages.isEmpty) return null;
     
     return messages.last;
+  }
+  
+  // Dispose resources
+  void dispose() {
+    _chatUpdatesController.close();
+    _bluetoothService.dispose();
   }
 }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../services/chat_service.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final Chat chat;
@@ -22,11 +23,34 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _messageController = TextEditingController();
   List<Message> _messages = [];
   bool _isLoading = true;
-
+  bool _isSending = false;
+  bool _isBluetoothChat = false;
+  bool _isConnected = false;
+  
+  // To track active Bluetooth connection
+  BluetoothDevice? _connectedDevice;
+  
   @override
   void initState() {
     super.initState();
     _loadMessages();
+    _checkBluetoothConnection();
+    
+    // Listen for incoming messages from Bluetooth
+    widget.chatService.onChatUpdated.listen((chatId) {
+      if (chatId == widget.chat.id) {
+        _reloadMessages();
+      }
+    });
+  }
+  
+  void _checkBluetoothConnection() {
+    _connectedDevice = widget.chatService.getConnectedDevice();
+    _isConnected = widget.chatService.isConnectedToBluetooth();
+    
+    // Check if this chat is with a Bluetooth device
+    _isBluetoothChat = _connectedDevice != null && 
+        _connectedDevice!.remoteId.toString() == widget.chat.id;
   }
 
   Future<void> _loadMessages() async {
@@ -40,6 +64,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       setState(() {
         _messages = messages;
         _isLoading = false;
+      });
+    }
+  }
+  
+  Future<void> _reloadMessages() async {
+    _checkBluetoothConnection();
+    
+    // Reload messages
+    final messages = await widget.chatService.getMessages(widget.chat.id);
+    
+    if (mounted) {
+      setState(() {
+        _messages = messages;
       });
     }
   }
@@ -57,15 +94,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     // Clear the text field immediately for better UX
     _messageController.clear();
     
-    // Send and persist the message
-    await widget.chatService.sendMessage(widget.chat.id, text);
+    // Show sending indicator
+    setState(() {
+      _isSending = true;
+    });
     
-    // Reload the messages to include the new one
-    if (mounted) {
-      final messages = await widget.chatService.getMessages(widget.chat.id);
-      setState(() {
-        _messages = messages;
-      });
+    try {
+      // Send and persist the message
+      bool success = await widget.chatService.sendMessage(widget.chat.id, text);
+      
+      if (!success && _isBluetoothChat) {
+        // Show a snackbar if bluetooth sending failed
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send message. Check Bluetooth connection.'),
+              backgroundColor: Colors.red,
+            )
+          );
+        }
+      }
+    } finally {
+      // Reload the messages to include the new one
+      if (mounted) {
+        final messages = await widget.chatService.getMessages(widget.chat.id);
+        setState(() {
+          _messages = messages;
+          _isSending = false;
+        });
+      }
     }
   }
 
@@ -80,16 +137,33 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               radius: 20,
             ),
             const SizedBox(width: 10),
-            Text(widget.chat.name),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.chat.name),
+                if (_isBluetoothChat) 
+                  Text(
+                    _isConnected ? 'Connected' : 'Disconnected',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _isConnected ? Colors.green : Colors.red,
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.call),
-            onPressed: () {
-              // Implement call functionality
-            },
-          ),
+          if (_isBluetoothChat)
+            IconButton(
+              icon: Icon(
+                _isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+                color: _isConnected ? Colors.blue : Colors.grey,
+              ),
+              onPressed: _isConnected 
+                ? _disconnectBluetooth 
+                : null,
+            ),
           IconButton(
             icon: const Icon(Icons.more_vert),
             onPressed: () {
@@ -100,6 +174,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       body: Column(
         children: [
+          // Bluetooth status banner
+          if (_isBluetoothChat && !_isConnected)
+            Container(
+              color: Colors.red.shade100,
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+              child: const Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red),
+                  SizedBox(width: 8.0),
+                  Text(
+                    'Bluetooth disconnected. Messages will not be sent.',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ],
+              ),
+            ),
+          
           // Messages list
           Expanded(
             child: _isLoading
@@ -144,15 +236,54 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                     textCapitalization: TextCapitalization.sentences,
                     onSubmitted: (_) => _sendMessage(),
+                    enabled: !(_isBluetoothChat && !_isConnected), // Disable if bluetooth disconnected
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  color: Theme.of(context).primaryColor,
-                  onPressed: _sendMessage,
-                ),
+                _isSending
+                  ? const SizedBox(
+                      height: 24, 
+                      width: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.send),
+                      color: (_isBluetoothChat && !_isConnected) 
+                        ? Colors.grey 
+                        : Theme.of(context).primaryColor,
+                      onPressed: (_isBluetoothChat && !_isConnected) 
+                        ? null 
+                        : _sendMessage,
+                    ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _disconnectBluetooth() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Disconnect'),
+        content: const Text('Disconnect from this Bluetooth device?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await widget.chatService.disconnectFromBluetoothDevice();
+              if (mounted) {
+                setState(() {
+                  _isConnected = false;
+                });
+              }
+            },
+            child: const Text('Disconnect'),
           ),
         ],
       ),
