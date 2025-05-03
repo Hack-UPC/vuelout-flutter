@@ -20,14 +20,28 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _messageController = TextEditingController();
-  late List<Message> _messages;
+  List<Message> _messages = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _messages = widget.chatService.getMessages(widget.chat.id);
+    _loadMessages();
+  }
+
+  Future<void> _loadMessages() async {
     // Mark messages as read when entering the chat
-    widget.chatService.markChatAsRead(widget.chat.id);
+    await widget.chatService.markChatAsRead(widget.chat.id);
+    
+    // Load messages from persistence
+    final messages = await widget.chatService.getMessages(widget.chat.id);
+    
+    if (mounted) {
+      setState(() {
+        _messages = messages;
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -36,17 +50,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     super.dispose();
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     
-    widget.chatService.sendMessage(widget.chat.id, text);
+    // Clear the text field immediately for better UX
     _messageController.clear();
     
-    // Update the message list
-    setState(() {
-      _messages = widget.chatService.getMessages(widget.chat.id);
-    });
+    // Send and persist the message
+    await widget.chatService.sendMessage(widget.chat.id, text);
+    
+    // Reload the messages to include the new one
+    if (mounted) {
+      final messages = await widget.chatService.getMessages(widget.chat.id);
+      setState(() {
+        _messages = messages;
+      });
+    }
   }
 
   @override
@@ -82,17 +102,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         children: [
           // Messages list
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(10.0),
-              reverse: false,  // Show newest messages at the bottom
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                final isMe = message.senderId == ChatService.currentUserId;
-                
-                return _buildMessageBubble(message, isMe);
-              },
-            ),
+            child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _messages.isEmpty
+                ? const Center(child: Text('No messages yet'))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(10.0),
+                    reverse: false,  // Show newest messages at the bottom
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) {
+                      final message = _messages[index];
+                      final isMe = message.senderId == ChatService.currentUserId;
+                      
+                      return _buildMessageBubble(message, isMe);
+                    },
+                  ),
           ),
           
           // Message input area
@@ -119,6 +143,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       border: InputBorder.none,
                     ),
                     textCapitalization: TextCapitalization.sentences,
+                    onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
                 IconButton(

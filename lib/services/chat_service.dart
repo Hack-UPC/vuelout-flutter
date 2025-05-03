@@ -1,5 +1,6 @@
 import '../models/message.dart';
 import '../models/chat.dart';
+import 'storage_service.dart';
 
 class ChatService {
   // Mock user ID - in a real app, this would come from authentication
@@ -7,10 +8,33 @@ class ChatService {
   
   // In-memory storage of messages for each chat
   final Map<String, List<Message>> _chatMessages = {};
+  
+  // Storage service for persistence
+  final StorageService _storageService = StorageService();
 
   // Initialize with sample message data
   ChatService() {
-    _initSampleData();
+    _initializeMessages();
+  }
+
+  // Load messages from storage or use sample data if storage is empty
+  Future<void> _initializeMessages() async {
+    // First check if we have any saved messages
+    final chatIds = await _storageService.getAllChatIds();
+    
+    if (chatIds.isEmpty) {
+      // No saved messages, use sample data
+      _initSampleData();
+      // Save the sample data to storage
+      for (final chatId in _chatMessages.keys) {
+        await _storageService.saveMessages(chatId, _chatMessages[chatId]!);
+      }
+    } else {
+      // Load messages from storage
+      for (final chatId in chatIds) {
+        _chatMessages[chatId] = await _storageService.getMessages(chatId);
+      }
+    }
   }
 
   void _initSampleData() {
@@ -114,12 +138,16 @@ class ChatService {
   }
 
   // Get all messages for a specific chat
-  List<Message> getMessages(String chatId) {
+  Future<List<Message>> getMessages(String chatId) async {
+    // If we don't have the messages in memory yet, try to load from storage
+    if (!_chatMessages.containsKey(chatId)) {
+      _chatMessages[chatId] = await _storageService.getMessages(chatId);
+    }
     return _chatMessages[chatId] ?? [];
   }
 
   // Send a new message in a chat
-  void sendMessage(String chatId, String text) {
+  Future<void> sendMessage(String chatId, String text) async {
     final messageId = '${chatId}_${(_chatMessages[chatId]?.length ?? 0) + 1}_${DateTime.now().millisecondsSinceEpoch}';
     
     final newMessage = Message(
@@ -134,15 +162,20 @@ class ChatService {
     }
     
     _chatMessages[chatId]!.add(newMessage);
+    
+    // Persist to storage
+    await _storageService.saveMessages(chatId, _chatMessages[chatId]!);
   }
 
   // Mark all messages in a chat as read
-  void markChatAsRead(String chatId) {
+  Future<void> markChatAsRead(String chatId) async {
     final messages = _chatMessages[chatId];
     if (messages == null) return;
 
+    bool hasChanges = false;
+    
     for (int i = 0; i < messages.length; i++) {
-      if (messages[i].senderId != currentUserId) {
+      if (messages[i].senderId != currentUserId && !messages[i].isRead) {
         final message = messages[i];
         messages[i] = Message(
           id: message.id,
@@ -151,7 +184,13 @@ class ChatService {
           timestamp: message.timestamp,
           isRead: true,
         );
+        hasChanges = true;
       }
+    }
+    
+    if (hasChanges) {
+      // Persist to storage
+      await _storageService.saveMessages(chatId, messages);
     }
   }
 
@@ -163,5 +202,13 @@ class ChatService {
     return messages.where((message) => 
       message.senderId != currentUserId && !message.isRead
     ).length;
+  }
+  
+  // Get the last message from a chat
+  Message? getLastMessage(String chatId) {
+    final messages = _chatMessages[chatId];
+    if (messages == null || messages.isEmpty) return null;
+    
+    return messages.last;
   }
 }
