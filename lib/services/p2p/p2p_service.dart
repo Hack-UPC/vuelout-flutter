@@ -98,12 +98,18 @@ class P2PService {
     }
     
     try {
+      print("P2PService: Starting discovery...");
       final result = await _nearbyService.discover();
+      print("P2PService: Discovery started: $result");
       if (result) {
         _isDiscovering = true;
         
         // Listen for discovered peers
         _nearbyService.getPeersStream().listen((peers) {
+          print("P2PService: Peers changed: ${peers.length} peers found");
+          for (var peer in peers) {
+            print("P2PService: Found peer: ${peer.info.id}, type: ${peer.runtimeType}");
+          }
           _peersController.add(peers);
         });
       }
@@ -132,7 +138,9 @@ class P2PService {
   // Connect to a peer
   Future<bool> connectToPeer(NearbyDevice peer) async {
     try {
+      print("P2PService: Connecting to peer: ${peer.info.id}, type: ${peer.runtimeType}...");
       final result = await _nearbyService.connect(peer);
+      print("P2PService: Connect result: $result");
       if (result) {
         _connectedDevice = peer;
         
@@ -178,6 +186,8 @@ class P2PService {
   Future<void> _setupCommunicationChannel() async {
     if (_connectedDevice == null) return;
     
+    print("P2PService: Setting up communication channel with ${_connectedDevice!.info.id}");
+    
     final messagesListener = NearbyServiceMessagesListener(
       onData: _handleIncomingMessage,
     );
@@ -186,33 +196,45 @@ class P2PService {
       onData: _handleIncomingFiles,
     );
     
-    await _nearbyService.startCommunicationChannel(
-      NearbyCommunicationChannelData(
-        _connectedDevice!.info.id,
-        messagesListener: messagesListener,
-        filesListener: filesListener,
-      ),
-    );
+    try {
+      await _nearbyService.startCommunicationChannel(
+        NearbyCommunicationChannelData(
+          _connectedDevice!.info.id,
+          messagesListener: messagesListener,
+          filesListener: filesListener,
+        ),
+      );
+      print("P2PService: Communication channel established successfully");
+    } catch (e) {
+      print("P2PService: Error establishing communication channel: $e");
+    }
   }
   
   // Handle updates to the connected device
   void _handleConnectedDeviceUpdate(NearbyDevice? device) {
+    print("P2PService: Connected device update - Old: ${_connectedDevice?.info.id}, New: ${device?.info.id}, Connected: ${device?.status.isConnected}");
+    
     final wasConnected = _connectedDevice?.status.isConnected ?? false;
     final isNowConnected = device?.status.isConnected ?? false;
     
     _connectedDevice = device;
     
     if (wasConnected && !isNowConnected) {
+      print("P2PService: Device disconnected");
       _connectionStatusController.add(false);
     } else if (!wasConnected && isNowConnected) {
+      print("P2PService: Device connected");
       _connectionStatusController.add(true);
     }
   }
   
   // Handle incoming messages
   void _handleIncomingMessage(ReceivedNearbyMessage message) {
+    print("P2PService: Received message from ${message.sender.id}, type: ${message.content.runtimeType}");
+    
     if (message.content is NearbyMessageTextRequest) {
       final textRequest = message.content as NearbyMessageTextRequest;
+      print("P2PService: Text message: ${textRequest.value}");
       
       // Create a Message object from the received text
       final receivedMessage = Message(
@@ -233,6 +255,7 @@ class P2PService {
           receiver: message.sender,
         ),
       );
+      print("P2PService: Sent receipt confirmation");
     }
   }
   

@@ -40,36 +40,49 @@ class _P2PChatScreenState extends State<P2PChatScreen> {
     });
 
     // Initialize the P2P service
-    await _p2pService.initialize();
+    final initialized = await _p2pService.initialize(deviceName: "Vuelout ${DateTime.now().millisecondsSinceEpoch}");
+    print("P2PChatScreen: P2P service initialized: $initialized");
 
-    // Setup streams
-    _peersSubscription = _p2pService.peersStream.listen((peers) {
-      setState(() {
-        _nearbyDevices = peers;
-      });
-    });
+    // Setup streams with robust error handling
+    _peersSubscription = _p2pService.peersStream.listen(
+      (peers) {
+        print("P2PChatScreen: Received ${peers.length} peers from stream");
+        setState(() {
+          _nearbyDevices = peers;
+        });
+      },
+      onError: (error) => print("P2PChatScreen: Error in peers stream: $error"),
+    );
 
-    _messagesSubscription = _p2pService.messagesStream.listen((message) {
-      setState(() {
-        _messages = [..._messages, message];
-      });
-    });
+    _messagesSubscription = _p2pService.messagesStream.listen(
+      (message) {
+        print("P2PChatScreen: Received message: ${message.text}");
+        setState(() {
+          _messages = [..._messages, message];
+        });
+      },
+      onError: (error) => print("P2PChatScreen: Error in messages stream: $error"),
+    );
 
-    _connectionSubscription = _p2pService.connectionStatusStream.listen((isConnected) {
-      setState(() {});
-      
-      if (isConnected) {
-        // Stop discovery when connected
-        _stopDiscovery();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Connected to peer')),
-        );
-      } else if (_p2pService.connectedDevice != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Disconnected from peer')),
-        );
-      }
-    });
+    _connectionSubscription = _p2pService.connectionStatusStream.listen(
+      (isConnected) {
+        print("P2PChatScreen: Connection status changed: $isConnected");
+        setState(() {});
+        
+        if (isConnected) {
+          // Stop discovery when connected
+          _stopDiscovery();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Connected to peer')),
+          );
+        } else if (_p2pService.connectedDevice != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Disconnected from peer')),
+          );
+        }
+      },
+      onError: (error) => print("P2PChatScreen: Error in connection stream: $error"),
+    );
 
     // On Android, check permissions
     if (_p2pService.nearbyService.android != null) {
@@ -84,6 +97,11 @@ class _P2PChatScreenState extends State<P2PChatScreen> {
     setState(() {
       _isInitializing = false;
     });
+    
+    // Auto-start discovery after initialization
+    if (!_isDiscovering) {
+      _startDiscovery();
+    }
   }
 
   Future<void> _toggleDiscovery() async {
@@ -103,15 +121,16 @@ class _P2PChatScreenState extends State<P2PChatScreen> {
     await _p2pService.setIOSRole(_isIOSBrowser);
 
     final result = await _p2pService.startDiscovery();
+    print("P2PChatScreen: Discovery started: $result");
+    
     if (!result) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to start discovery')),
       );
+      setState(() {
+        _isDiscovering = false;
+      });
     }
-
-    setState(() {
-      _isDiscovering = result;
-    });
   }
 
   Future<void> _stopDiscovery() async {
