@@ -184,10 +184,17 @@ class P2PService {
               },
             );
         
-        // Start communication channel with retry
+        // Start communication channel with retry - IMPORTANT FOR BIDIRECTIONAL COMM
         await _setupCommunicationChannel();
         
+        // Give the other device a moment to also set up their side of the channel
+        await Future.delayed(const Duration(milliseconds: 800));
+        
+        // Ensure both sides know the connection is established
         _connectionStatusController.add(true);
+        
+        // Send a handshake message to help establish bidirectional communication
+        _sendHandshakeMessage();
         
         // After successful connection, periodically check connection health
         _startConnectionHealthCheck();
@@ -197,6 +204,27 @@ class P2PService {
     } catch (e) {
       print('Error connecting to peer: $e');
       return false;
+    }
+  }
+
+  // Send a handshake message to establish bidirectional communication
+  Future<void> _sendHandshakeMessage() async {
+    if (_connectedDevice == null || !_connectedDevice!.status.isConnected) {
+      return;
+    }
+
+    try {
+      print("P2PService: Sending handshake message to ${_connectedDevice!.info.id}");
+      
+      // Send a special handshake message
+      _nearbyService.send(
+        OutgoingNearbyMessage(
+          content: NearbyMessageTextRequest.create(value: "__HANDSHAKE__"),
+          receiver: _connectedDevice!.info,
+        ),
+      );
+    } catch (e) {
+      print('Error sending handshake: $e');
     }
   }
 
@@ -294,14 +322,73 @@ class P2PService {
   }
   
   // Handle incoming messages
-  void _handleIncomingMessage(ReceivedNearbyMessage message) {
+  void _handleIncomingMessage(ReceivedNearbyMessage message) async {
     print("P2PService: Received message from ${message.sender.id}, type: ${message.content.runtimeType}");
     
     if (message.content is NearbyMessageTextRequest) {
       final textRequest = message.content as NearbyMessageTextRequest;
       print("P2PService: Text message: ${textRequest.value}");
       
-      // Create a Message object from the received text
+      // Special handling for handshake messages
+      if (textRequest.value == "__HANDSHAKE__") {
+        print("P2PService: Received handshake message, ensuring communication channel");
+        
+        // If we receive a handshake, ensure we have a communication channel with this peer
+        if (_connectedDevice == null || _connectedDevice!.info.id != message.sender.id) {
+          // Store the sender as our connected device if we don't have it yet
+          print("P2PService: Setting connected device from handshake");
+          
+          // Find the device in discovered peers if possible
+          try {
+            // Use await to get the actual List<NearbyDevice> from the Future
+            final peers = await _nearbyService.getPeers();
+            
+            // Find the matching peer in the list
+            final matchingPeer = peers.firstWhere(
+              (device) => device.info.id == message.sender.id,
+              orElse: () => throw Exception("Device not found in peers list"),
+            );
+            
+            _connectedDevice = matchingPeer;
+            print("P2PService: Found matching peer in discovered devices list");
+          } catch (e) {
+            // If not found in peers list, use the message sender info
+            print("P2PService: Creating device from message sender: ${e.toString()}");
+            // We can't create a NearbyDevice directly, so we'll connect by ID instead
+            _nearbyService.connectById(message.sender.id).then((connected) {
+              if (connected) {
+                print("P2PService: Successfully connected to device from handshake");
+              }
+            });
+          }
+          
+          // Ensure we have a proper communication channel setup
+          _setupCommunicationChannel();
+          
+          // Update connection status
+          _connectionStatusController.add(true);
+          
+          // Start the health check
+          _startConnectionHealthCheck();
+        }
+        
+        // Send a handshake response to complete the bidirectional setup
+        _nearbyService.send(
+          OutgoingNearbyMessage(
+            content: NearbyMessageTextRequest.create(value: "__HANDSHAKE_ACK__"),
+            receiver: message.sender,
+          ),
+        );
+        
+        // Don't show handshake messages in the UI
+        return;
+      } else if (textRequest.value == "__HANDSHAKE_ACK__") {
+        print("P2PService: Received handshake acknowledgment");
+        // Don't show handshake acknowledgments in the UI
+        return;
+      }
+      
+      // Regular message handling for normal messages
       final receivedMessage = Message(
         id: textRequest.id,
         senderId: message.sender.id,
@@ -310,7 +397,7 @@ class P2PService {
         isRead: true,
       );
       
-      // Add the message to the stream
+      // Add the message to the stream for UI display
       _messagesController.add(receivedMessage);
       
       // Send a response to confirm receipt
