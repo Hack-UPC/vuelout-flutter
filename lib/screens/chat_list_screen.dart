@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/chat.dart';
 import '../services/chat_service.dart';
 import 'chat_detail_screen.dart';
+import 'p2p_chat_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   final List<Chat> chats;
@@ -25,6 +26,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
       appBar: AppBar(
         title: const Text('Chats'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.wifi),
+            onPressed: () {
+              _navigateToP2PChat();
+            },
+            tooltip: 'P2P Chat',
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
@@ -79,6 +87,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
       // to reflect any changes in unread messages
       setState(() {});
     });
+  }
+
+  void _navigateToP2PChat() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const P2PChatScreen(),
+      ),
+    );
   }
 }
 
