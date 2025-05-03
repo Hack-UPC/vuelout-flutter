@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'models/chat.dart';
 import 'models/message.dart';
 import 'screens/chat_list_screen.dart';
+import 'screens/device_discovery_screen.dart';
 import 'services/chat_service.dart';
 
 void main() {
@@ -125,9 +126,21 @@ class _HomeScreenState extends State<HomeScreen> {
             child: CircularProgressIndicator(),
           ),
         )
-      : ChatListScreen(
-          chats: _chats,
-          chatService: _chatService,
+      : Scaffold(
+          body: ChatListScreen(
+            chats: _chats,
+            chatService: _chatService,
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const DeviceDiscoveryScreen()),
+              );
+            },
+            tooltip: 'Find Bluetooth Devices',
+            child: const Icon(Icons.bluetooth_searching),
+          ),
         );
   }
 }
